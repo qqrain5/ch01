@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logistics Guard - 物流黑盒子</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        /* 數值跳動動畫 */
+        @keyframes shock {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); color: #ef4444; }
+        }
+        .impact-active { animation: shock 0.2s ease-in-out; }
+        
+        .impact-log-item {
+            animation: slideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen">
+
+    <!-- 頂部資訊區 -->
+    <header class="p-6 border-b border-slate-800 flex justify-between items-center">
+        <div>
+            <h1 class="text-xl font-black italic tracking-tighter">LOGISTICS <span class="text-amber-500">GUARD</span></h1>
+            <p class="text-[10px] text-slate-500 font-mono tracking-widest uppercase mt-1">Status: Active Monitoring</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            <span class="text-xs font-bold text-emerald-500 uppercase">Live</span>
+        </div>
+    </header>
+
+    <main class="max-w-md mx-auto p-6 space-y-6">
+        
+        <!-- 即時 G 力儀表板 -->
+        <div class="bg-slate-800 rounded-3xl p-8 border border-slate-700 shadow-2xl relative overflow-hidden">
+            <div class="absolute top-0 right-0 p-4">
+                <span id="maxG" class="text-[10px] font-mono bg-slate-900 text-amber-500 px-2 py-1 rounded border border-amber-500/30">MAX: 1.0G</span>
+            </div>
+            
+            <div class="flex flex-col items-center py-6">
+                <span class="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">瞬間衝擊力</span>
+                <div class="flex items-baseline" id="gContainer">
+                    <span id="currentG" class="text-8xl font-black tracking-tighter">1.0</span>
+                    <span class="text-2xl font-bold text-slate-600 ml-2">G</span>
+                </div>
+            </div>
+
+            <!-- 視覺化進度條 -->
+            <div class="w-full h-3 bg-slate-900 rounded-full mt-6 overflow-hidden">
+                <div id="gBar" class="h-full bg-emerald-500 transition-all duration-100" style="width: 20%"></div>
+            </div>
+            <div class="flex justify-between mt-2 text-[10px] text-slate-500 font-mono">
+                <span>0.0G</span>
+                <span>閾值 (3.0G)</span>
+                <span>5.0G+</span>
+            </div>
+        </div>
+
+        <!-- 操作按鈕 -->
+        <div class="flex gap-4">
+            <button id="startBtn" class="flex-1 bg-amber-500 text-slate-900 py-4 rounded-2xl font-black text-lg shadow-lg shadow-amber-500/20 active:scale-95 transition-all">
+                啟動監測
+            </button>
+            <button id="clearBtn" class="bg-slate-800 text-slate-400 px-6 py-4 rounded-2xl font-bold border border-slate-700 active:scale-95 transition-all">
+                重置
+            </button>
+        </div>
+
+        <!-- 碰撞日誌區 -->
+        <div class="space-y-4">
+            <div class="flex justify-between items-center px-2">
+                <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest">異常碰撞日誌</h3>
+                <span id="logCount" class="bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded-full">0 則紀錄</span>
+            </div>
+
+            <div id="logList" class="space-y-3">
+                <!-- 空狀態 -->
+                <div id="emptyState" class="py-12 text-center border-2 border-dashed border-slate-800 rounded-3xl">
+                    <i class="fa-solid fa-box-open text-slate-700 text-3xl mb-3"></i>
+                    <p class="text-slate-600 text-sm">目前無劇烈碰撞數據</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 位置資訊 -->
+        <div class="bg-slate-800/50 rounded-2xl p-4 flex items-center gap-4 border border-slate-800">
+            <div class="bg-slate-900 p-3 rounded-xl text-amber-500">
+                <i class="fa-solid fa-location-dot"></i>
+            </div>
+            <div>
+                <p class="text-[10px] text-slate-500 font-bold uppercase">最後偵測位置</p>
+                <p id="geoText" class="text-xs font-mono text-slate-300">尚未取得定位數據</p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const currentG = document.getElementById('currentG');
+        const maxGEl = document.getElementById('maxG');
+        const gBar = document.getElementById('gBar');
+        const gContainer = document.getElementById('gContainer');
+        const logList = document.getElementById('logList');
+        const emptyState = document.getElementById('emptyState');
+        const logCountEl = document.getElementById('logCount');
+        const geoText = document.getElementById('geoText');
+
+        let isMonitoring = false;
+        let highestG = 1.0;
+        let logs = [];
+        const THRESHOLD = 3.0; // 設定觸發紀錄的門檻
+
+        // 初始化 GPS
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(
+                pos => {
+                    geoText.textContent = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+                },
+                err => { geoText.textContent = "定位權限已拒絕"; },
+                { enableHighAccuracy: true }
+            );
+        }
+
+        // 啟動監測 (包含 iOS 權限請求)
+        startBtn.onclick = async () => {
+            if (isMonitoring) {
+                stopMonitoring();
+                return;
+            }
+
+            // iOS 13+ 必須手動觸發權限請求
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission === 'granted') {
+                        startMonitoring();
+                    } else {
+                        alert("請允許感測器存取以進行監測。");
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+            } else {
+                startMonitoring();
+            }
+        };
+
+        function startMonitoring() {
+            isMonitoring = true;
+            startBtn.textContent = "停止監測";
+            startBtn.classList.replace('bg-amber-500', 'bg-red-500');
+            startBtn.classList.replace('text-slate-900', 'text-white');
+            window.addEventListener('devicemotion', handleMotion);
+        }
+
+        function stopMonitoring() {
+            isMonitoring = false;
+            startBtn.textContent = "啟動監測";
+            startBtn.classList.replace('bg-red-500', 'bg-amber-500');
+            startBtn.classList.replace('text-white', 'text-slate-900');
+            window.removeEventListener('devicemotion', handleMotion);
+        }
+
+        function handleMotion(event) {
+            const acc = event.accelerationIncludingGravity;
+            if (!acc) return;
+
+            // 計算三軸向量合力 (除以 9.8 轉換成 G)
+            const g = Math.sqrt(acc.x ** 2 + acc.y ** 2 + acc.z ** 2) / 9.80665;
+            
+            updateDisplay(g);
+
+            if (g > THRESHOLD) {
+                addImpactLog(g);
+            }
+        }
+
+        function updateDisplay(g) {
+            const displayG = g.toFixed(1);
+            currentG.textContent = displayG;
+
+            // 更新最高紀錄
+            if (g > highestG) {
+                highestG = g;
+                maxGEl.textContent = `MAX: ${highestG.toFixed(1)}G`;
+            }
+
+            // 更新能量條
+            const percent = Math.min((g / 5) * 100, 100);
+            gBar.style.width = `${percent}%`;
+
+            // 根據 G 力改變顏色
+            if (g > THRESHOLD) {
+                gBar.style.backgroundColor = '#ef4444';
+                gContainer.classList.add('impact-active');
+                setTimeout(() => gContainer.classList.remove('impact-active'), 200);
+            } else if (g > 1.5) {
+                gBar.style.backgroundColor = '#f59e0b';
+            } else {
+                gBar.style.backgroundColor = '#10b981';
+            }
+        }
+
+        function addImpactLog(g) {
+            // 防止一秒內重複紀錄多筆
+            const now = Date.now();
+            if (logs.length > 0 && now - logs[0].time < 1000) return;
+
+            emptyState.style.display = 'none';
+            const timeStr = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+            
+            const logObj = { time: now, val: g.toFixed(1) };
+            logs.unshift(logObj);
+            logCountEl.textContent = `${logs.length} 則紀錄`;
+
+            const item = document.createElement('div');
+            item.className = "impact-log-item bg-slate-800 p-4 rounded-2xl flex justify-between items-center border-l-4 border-red-500";
+            item.innerHTML = `
+                <div>
+                    <p class="text-white font-bold">${timeStr}</p>
+                    <p class="text-[10px] text-slate-500 font-mono italic">${geoText.textContent}</p>
+                </div>
+                <div class="text-right">
+                    <span class="text-2xl font-black text-red-500">${g.toFixed(1)}</span>
+                    <span class="text-xs font-bold text-slate-600">G</span>
+                </div>
+            `;
+            logList.prepend(item);
+
+            // 模擬 Fetch 傳送數據
+            console.log("[Fetch] 碰撞數據已同步至雲端伺服器:", logObj);
+        }
+
+        clearBtn.onclick = () => {
+            logs = [];
+            highestG = 1.0;
+            currentG.textContent = "1.0";
+            maxGEl.textContent = "MAX: 1.0G";
+            gBar.style.width = "20%";
+            logCountEl.textContent = "0 則紀錄";
+            logList.innerHTML = '';
+            logList.appendChild(emptyState);
+            emptyState.style.display = 'block';
+        };
+    </script>
+</body>
+</html>
