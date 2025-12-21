@@ -2,31 +2,52 @@
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <title>getUserMedia 範例</title>
+    <title>多功能感測器範例</title>
 </head>
 <body>
 
-    <button id="btn">啟用相機與麥克風</button>
-    <br><br>
-    <video id="video" autoplay playsinline></video>
+    <button id="initBtn">啟動所有感測器與影音</button>
+    <hr>
+    
+    <video id="video" autoplay playsinline style="width:320px; background:#000;"></video>
+    
+    <div>
+        <p>麥克風狀態：<span id="micStatus">尚未啟動</span></p>
+        <p>磁力數值 (μT)：<span id="magValue">0, 0, 0</span></p>
+        <p>環境光強 (lux)：<span id="lightValue">不支援或尚未獲取</span></p>
+    </div>
 
     <script>
-        const btn = document.getElementById('btn');
-        const video = document.getElementById('video');
+        const initBtn = document.getElementById('initBtn');
 
-        btn.onclick = async () => {
+        initBtn.onclick = async () => {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: true
-                });
-                video.srcObject = stream;
-            } catch (err) {
-                console.error(err);
-                alert("無法取得相機或麥克風權限");
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('video').srcObject = stream;
+                document.getElementById('micStatus').innerText = "啟動中";
+            } catch (e) { console.error("影音錯誤:", e); }
+
+            if ('Magnetometer' in window) {
+                try {
+                    const mag = new Magnetometer({frequency: 10});
+                    mag.addEventListener('reading', () => {
+                        document.getElementById('magValue').innerText = 
+                            `${mag.x.toFixed(2)}, ${mag.y.toFixed(2)}, ${mag.z.toFixed(2)}`;
+                    });
+                    mag.start();
+                } catch (e) { console.log("磁力計啟動失敗"); }
+            }
+
+            if ('AmbientLightSensor' in window) {
+                try {
+                    const sensor = new AmbientLightSensor();
+                    sensor.addEventListener('reading', () => {
+                        document.getElementById('lightValue').innerText = sensor.illuminance;
+                    });
+                    sensor.start();
+                } catch (e) { console.log("光感測器啟動失敗"); }
             }
         };
     </script>
-
 </body>
 </html>
